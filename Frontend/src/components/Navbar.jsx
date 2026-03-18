@@ -32,9 +32,9 @@ const Navbar = ({ onLogout }) => {
                     </Link>
                 </div>
                 <div className="navbar-actions">
-                    <button className="btn btn-ghost btn-danger flex-center" onClick={handleLogout}>
+                    <button className="btn btn-outline btn-danger flex-center" onClick={handleLogout} style={{ border: '1px solid var(--danger-light)', borderRadius: '8px' }}>
                         <LogOut size={18} />
-                        <span className="nav-text" style={{ marginLeft: '6px' }}>Logout</span>
+                        <span className="nav-text" style={{ marginLeft: '6px', fontWeight: '500' }}>Logout</span>
                     </button>
                 </div>
             </div>

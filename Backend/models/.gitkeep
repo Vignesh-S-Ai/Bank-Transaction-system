@@ -1,0 +1,2 @@
+// Mocking model layer for comprehensive demonstration if needed
+// Real code puts queries directly in controllers when using raw SQL queries

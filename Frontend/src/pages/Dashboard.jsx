@@ -7,6 +7,20 @@ const Dashboard = () => {
     const [balance, setBalance] = useState(0);
     const [recentStmts, setRecentStmts] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [username, setUsername] = useState('User');
+
+    useEffect(() => {
+        // Fetch username from local storage
+        const storedUser = localStorage.getItem('user');
+        if (storedUser) {
+            try {
+                const parsedUser = JSON.parse(storedUser);
+                setUsername(parsedUser.full_name || parsedUser.username || 'User');
+            } catch (e) {
+                console.error("Failed to parse user from local storage");
+            }
+        }
+    }, []);
 
     useEffect(() => {
         const fetchDashboardData = async () => {
@@ -30,7 +44,7 @@ const Dashboard = () => {
         <div className="dashboard-page fade-in">
             <header className="page-header">
                 <div>
-                    <h1>Welcome back, Demo User 👋</h1>
+                    <h1>Welcome back, <span style={{ textTransform: 'capitalize' }}>{username}</span> 👋</h1>
                     <p>Here is your financial overview for {new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</p>
                 </div>
             </header>
