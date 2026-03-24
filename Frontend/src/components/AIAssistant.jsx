@@ -1,77 +1,9 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { Bot, Send, Sparkles, User, X } from 'lucide-react';
+import { Activity, BarChart2, Bot, Mic, Send, Sparkles, User, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { AIEngine } from '../utils/ai/engine';
+import { aiMemory } from '../utils/ai/memory';
 import useSoundFX from '../utils/sounds';
-
-// ─── Mock AI Response Engine ─────────────────────────────────
-const generateResponse = (message, { balance, transactions = [] }) => {
-    const msg = message.toLowerCase().trim();
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const weekAgo = new Date(now - 7 * 24 * 3600 * 1000);
-
-    const monthlySpend = transactions
-        .filter(t => new Date(t.date) >= monthStart && (t.type === 'WITHDRAWAL' || t.type === 'TRANSFER'))
-        .reduce((s, t) => s + t.amount, 0);
-    const weeklySpend = transactions
-        .filter(t => new Date(t.date) >= weekAgo && (t.type === 'WITHDRAWAL' || t.type === 'TRANSFER'))
-        .reduce((s, t) => s + t.amount, 0);
-    const monthlyIncome = transactions
-        .filter(t => new Date(t.date) >= monthStart && t.type === 'DEPOSIT')
-        .reduce((s, t) => s + t.amount, 0);
-    const totalTx = transactions.length;
-    const lastTx = transactions[0];
-
-    const netBalance = monthlyIncome - monthlySpend;
-    const savingsRate = monthlyIncome > 0 ? ((netBalance / monthlyIncome) * 100).toFixed(0) : 0;
-
-    if (msg.includes('balance') || msg.includes('how much do i have') || msg.includes('how much have i got')) {
-        return balance < 200
-            ? `⚠️ Your current balance is **$${balance.toFixed(2)}**. That's critically low — I'd recommend a deposit as soon as possible.`
-            : balance < 500
-                ? `Your current balance is **$${balance.toFixed(2)}**. It's a bit low — keep an eye on your spending.`
-                : `Your current balance is **$${balance.toFixed(2)}**. You're in good financial shape! 💪`;
-    }
-    if ((msg.includes('spend') || msg.includes('spent') || msg.includes('spending')) && (msg.includes('month') || msg.includes('monthly'))) {
-        return `This month you've spent **$${monthlySpend.toFixed(2)}** on withdrawals and transfers, and received **$${monthlyIncome.toFixed(2)}** in deposits.\n\nNet this month: **${netBalance >= 0 ? '+' : ''}$${netBalance.toFixed(2)}** — ${netBalance >= 0 ? 'positive cashflow! 🎉' : 'you spent more than you earned this month.'}`;
-    }
-    if ((msg.includes('spend') || msg.includes('spent')) && msg.includes('week')) {
-        return weeklySpend > 500
-            ? `In the last 7 days you've spent **$${weeklySpend.toFixed(2)}**. That's above average — consider slowing down.`
-            : `In the last 7 days you've spent **$${weeklySpend.toFixed(2)}**. Looks reasonable! 👍`;
-    }
-    if (msg.includes('last') || msg.includes('recent transaction') || msg.includes('latest')) {
-        if (!lastTx) return 'No transactions found on your account yet. Make your first deposit to get started!';
-        return `Your most recent transaction was a **${lastTx.type}** of **$${lastTx.amount.toFixed(2)}** on ${new Date(lastTx.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}.`;
-    }
-    if (msg.includes('how many') || msg.includes('total transactions') || msg.includes('count')) {
-        return `You have **${totalTx} transaction${totalTx !== 1 ? 's' : ''}** on record in total. ${totalTx > 20 ? 'Pretty active account! 🔥' : totalTx === 0 ? 'Time to make your first one!' : 'Building up your history.'}`;
-    }
-    if (msg.includes('income') || msg.includes('deposit') || msg.includes('received') || msg.includes('earned')) {
-        return `Your total deposits this month: **$${monthlyIncome.toFixed(2)}**. ${monthlyIncome > monthlySpend ? 'Great — you earned more than you spent! 🎯' : 'Your spending is outpacing income this month.'}`;
-    }
-    if (msg.includes('save') || msg.includes('saving') || msg.includes('tip') || msg.includes('advice')) {
-        return `Based on your activity this month:\n\n• Income: **$${monthlyIncome.toFixed(2)}**\n• Spent: **$${monthlySpend.toFixed(2)}**\n• Savings rate: **${savingsRate}%**\n\n${Number(savingsRate) >= 20 ? '🌟 Excellent! You\'re saving over 20% of income.' : '💡 Tip: Aim to save at least 20% of income. Try using the Budget Tracker on your dashboard!'}`;
-    }
-    if (msg.includes('hello') || msg.includes('hi') || msg.includes('hey') || msg.includes('good')) {
-        const hour = now.getHours();
-        const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-        return `${greet}! 👋 I'm **Nova**, your AI banking assistant. I can help you track spending, check your balance, analyze trends, and give personalized tips. What would you like to know?`;
-    }
-    if (msg.includes('help') || msg.includes('what can you') || msg.includes('commands')) {
-        return `Here's what I can help with:\n\n💰 **Balance** — "What's my balance?"\n📅 **Monthly stats** — "How much did I spend this month?"\n📈 **Weekly trends** — "What did I spend this week?"\n🔄 **Last transaction** — "Show my latest transaction"\n📊 **Transaction count** — "How many transactions do I have?"\n💡 **Savings tips** — "Give me a saving tip"\n\nJust ask naturally!`;
-    }
-    if (msg.includes('transfer') || msg.includes('send money')) {
-        return `To make a transfer, head to the **Transfer** page from the navigation bar. You'll need the recipient's Account ID and the amount. All transfers are instant within NovaBank!`;
-    }
-    if (msg.includes('budget')) {
-        return `The **Budget Tracker** on your dashboard lets you set a monthly spending limit and track your progress in real time. Give it a try — go to the Dashboard and look for the Budget Tracker card!`;
-    }
-    if (msg.includes('thank')) {
-        return `You're welcome! 😊 I'm here anytime you need financial insights. Anything else I can help with?`;
-    }
-    return `I didn't quite catch that. Try asking about your **balance**, **monthly spending**, **recent transactions**, or type **help** to see everything I can do!`;
-};
 
 // ─── Format bold markdown ────────────────────────────────────
 const formatMessage = (text) =>
@@ -95,7 +27,6 @@ const TypingText = ({ text, onDone }) => {
         idxRef.current = 0;
         setDisplayed('');
         setDone(false);
-        // Vary speed slightly per character for natural feel
         const tick = () => {
             if (idxRef.current >= text.length) {
                 setDone(true);
@@ -103,12 +34,13 @@ const TypingText = ({ text, onDone }) => {
                 return;
             }
             setDisplayed(text.slice(0, ++idxRef.current));
-            // Pause slightly at punctuation
             const ch = text[idxRef.current - 1];
-            const delay = '.!?,\n'.includes(ch) ? 60 + Math.random() * 40 : 12 + Math.random() * 10;
+            // dynamic streaming simulation (faster for long strings)
+            const baseDelay = text.length > 100 ? 5 : 15;
+            const delay = '.!?,\n'.includes(ch) ? baseDelay + 30 : baseDelay + Math.random() * 5;
             setTimeout(tick, delay);
         };
-        const t = setTimeout(tick, 80); // initial delay
+        const t = setTimeout(tick, 20);
         return () => clearTimeout(t);
     }, [text]);
 
@@ -120,28 +52,86 @@ const TypingText = ({ text, onDone }) => {
     );
 };
 
+// ─── Contextual UI Components ────────────────────────────────
+const ContextualUI = ({ type, analysis }) => {
+    if (!type || !analysis) return null;
+
+    if (type === 'health_score') {
+        const color = analysis.score > 70 ? 'var(--success)' : analysis.score > 40 ? 'var(--warning)' : 'var(--danger)';
+        return (
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="context-ui-card">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <Activity size={16} color={color} />
+                    <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Financial Health Score</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <div style={{ fontSize: '2rem', fontWeight: 800, color, fontFamily: "'Space Grotesk', sans-serif" }}>
+                        {analysis.score}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                        <div style={{ height: 8, background: 'rgba(255,255,255,0.1)', borderRadius: 4, overflow: 'hidden' }}>
+                            <div style={{ width: `${analysis.score}%`, height: '100%', background: color, transition: 'width 1s ease' }} />
+                        </div>
+                        <div style={{ fontSize: '0.75rem', marginTop: '0.3rem', color: 'var(--text-muted)' }}>Out of 100 possible points</div>
+                    </div>
+                </div>
+            </motion.div>
+        );
+    }
+
+    if (type === 'spending_chart') {
+        const { normalized = [], labels = [], values = [] } = analysis.weeklyChart || {};
+        return (
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="context-ui-card">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.8rem' }}>
+                    <BarChart2 size={16} color="var(--primary-color)" />
+                    <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Weekly Spending</span>
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', height: 75, alignItems: 'flex-end', position: 'relative' }}>
+                    {normalized.map((h, i) => (
+                        <div key={i} title={`$${values[i].toFixed(2)}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative' }}>
+                            <div style={{ fontSize: '0.65rem', marginBottom: 4, color: 'var(--text-muted)' }}>{values[i] > 0 ? `$${Math.round(values[i])}` : ''}</div>
+                            <div style={{ width: '100%', height: `${h * 100}%`, background: i === 6 ? 'var(--primary-color)' : 'rgba(99,179,237,0.3)', borderRadius: '4px 4px 0 0', minHeight: 4, transition: 'height 0.8s ease-out' }} />
+                        </div>
+                    ))}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+                    {labels.map((l, idx) => <span key={idx} style={{ flex: 1, textAlign: 'center' }}>{l}</span>)}
+                </div>
+            </motion.div>
+        );
+    }
+    return null;
+};
+
 // ─── Suggestion chips ────────────────────────────────────────
 const SUGGESTIONS = [
-    "What's my balance?",
-    "How much did I spend this month?",
-    "Show my last transaction",
-    "Give me a saving tip",
-    "How many transactions do I have?",
-    "What did I spend this week?",
+    "What's my spending DNA?",
+    "Predict my future balance",
+    "Show spending chart",
+    "What is my risk score?",
+    "Set savings goal to $500",
+    "Any AI auto actions?",
 ];
 
 // ─── Main Component ──────────────────────────────────────────
-const AIAssistant = ({ balance, transactions }) => {
+const AIAssistant = ({ balance, transactions, analysis }) => {
     const [messages, setMessages] = useState([
         {
             id: 0, role: 'assistant',
-            text: "Hi! I'm **Nova**, your AI banking assistant. ✨\n\nAsk me about your balance, spending trends, or savings tips!",
+            text: "Hi! I'm **Nova**, your advanced AI banking assistant. ✨\n\nI can predict spending, analyze unusual transactions, calculate your health score, or help you with guided actions like transfers.",
             typed: true,
+            uiComponent: null
         }
     ]);
     const [input, setInput] = useState('');
     const [typing, setTyping] = useState(false);
     const [streamId, setStreamId] = useState(null);
+    const [listening, setListening] = useState(false);
+
+    // To keep UI in sync with local engine state
+    const [flowState, setFlowState] = useState(null);
+
     const bottomRef = useRef(null);
     const inputRef = useRef(null);
     const sfx = useSoundFX();
@@ -149,6 +139,38 @@ const AIAssistant = ({ balance, transactions }) => {
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, typing]);
+
+    const handleVoice = () => {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            alert("Your browser does not support voice input.");
+            return;
+        }
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = 'en-US';
+
+        recognition.onstart = () => {
+            setListening(true);
+            sfx.click();
+        };
+
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            setInput(transcript);
+        };
+
+        recognition.onerror = () => {
+            setListening(false);
+        };
+
+        recognition.onend = () => {
+            setListening(false);
+        };
+
+        recognition.start();
+    };
 
     const sendMessage = async (text) => {
         const q = (text || input).trim();
@@ -160,13 +182,18 @@ const AIAssistant = ({ balance, transactions }) => {
         setMessages(prev => [...prev, userMsg]);
         setTyping(true);
 
-        // Simulate thinking
-        const thinkMs = 600 + Math.random() * 700;
+        const thinkMs = 400 + Math.random() * 400;
         await new Promise(r => setTimeout(r, thinkMs));
 
-        const reply = generateResponse(q, { balance, transactions });
+        // Generate response using advanced NLP Engine
+        const engine = new AIEngine(balance, transactions);
+        const { text: replyText, uiComponent } = await engine.processMessage(q);
+
+        // Sync local UI state pointer for placeholder text
+        setFlowState(aiMemory.actionState.flow);
+
         const replyId = Date.now() + 1;
-        setMessages(prev => [...prev, { id: replyId, role: 'assistant', text: reply, typed: false }]);
+        setMessages(prev => [...prev, { id: replyId, role: 'assistant', text: replyText, typed: false, uiComponent }]);
         setStreamId(replyId);
         setTyping(false);
     };
@@ -180,13 +207,31 @@ const AIAssistant = ({ balance, transactions }) => {
     const clearChat = () => {
         setMessages([{
             id: Date.now(), role: 'assistant',
-            text: "Chat cleared. I'm still here — what would you like to know?",
+            text: "Chat cleared. I'm ready for your next request!",
             typed: true,
         }]);
+        aiMemory.clearActionState();
+        setFlowState(null);
     };
 
     return (
         <div className="ai-assistant-wrapper">
+            <style>{`
+            .context-ui-card {
+                background: rgba(20, 25, 40, 0.4);
+                border: 1px solid rgba(255,255,255,0.08);
+                border-radius: 12px;
+                padding: 1rem;
+                margin-top: 0.8rem;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            }
+            .mic-btn.active {
+                background: var(--danger);
+                color: white;
+                animation: pulse 1s infinite;
+            }
+            `}</style>
+
             {/* Suggestion chips */}
             <div className="chat-suggestions">
                 {SUGGESTIONS.map(s => (
@@ -214,7 +259,7 @@ const AIAssistant = ({ balance, transactions }) => {
                             <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>Nova AI</div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.72rem', color: 'var(--success)' }}>
                                 <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--success)', animation: 'pulse 2s infinite' }} />
-                                {typing ? 'Thinking...' : 'Online'}
+                                {typing ? 'Analyzing data...' : 'Online & Ready'}
                             </div>
                         </div>
                     </div>
@@ -244,11 +289,14 @@ const AIAssistant = ({ balance, transactions }) => {
                                 <div className={'chat-avatar ' + (msg.role === 'assistant' ? 'ai' : 'user')}>
                                     {msg.role === 'assistant' ? <Bot size={15} /> : <User size={15} />}
                                 </div>
-                                <div className="chat-bubble-content">
+                                <div className="chat-bubble-content" style={{ width: '100%' }}>
                                     {msg.role === 'assistant' && !msg.typed && msg.id === streamId
                                         ? <TypingText text={msg.text} onDone={() => markTyped(msg.id)} />
                                         : formatMessage(msg.text)
                                     }
+                                    {msg.uiComponent && msg.typed && msg.role === 'assistant' && (
+                                        <ContextualUI type={msg.uiComponent} analysis={analysis} />
+                                    )}
                                 </div>
                             </motion.div>
                         ))}
@@ -256,17 +304,11 @@ const AIAssistant = ({ balance, transactions }) => {
 
                     {/* Typing indicator dots */}
                     {typing && (
-                        <motion.div
-                            className="chat-bubble assistant"
-                            initial={{ opacity: 0, y: 8 }}
-                            animate={{ opacity: 1, y: 0 }}
-                        >
+                        <motion.div className="chat-bubble assistant" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
                             <div className="chat-avatar ai"><Bot size={15} /></div>
                             <div className="chat-bubble-content">
                                 <div className="typing-indicator">
-                                    <div className="typing-dot" />
-                                    <div className="typing-dot" />
-                                    <div className="typing-dot" />
+                                    <div className="typing-dot" /><div className="typing-dot" /><div className="typing-dot" />
                                 </div>
                             </div>
                         </motion.div>
@@ -274,17 +316,29 @@ const AIAssistant = ({ balance, transactions }) => {
                     <div ref={bottomRef} />
                 </div>
 
-                {/* Input */}
-                <div className="chat-input-row">
+                {/* Input row */}
+                <div className="chat-input-row" style={{ alignItems: 'center', gap: '0.5rem' }}>
+                    <motion.button
+                        className={`btn btn-ghost btn-icon-sm mic-btn ${listening ? 'active' : ''}`}
+                        onClick={handleVoice}
+                        whileTap={{ scale: 0.9 }}
+                        title="Voice Input"
+                        style={{ padding: '0.5rem', borderRadius: '50%' }}
+                    >
+                        <Mic size={18} />
+                    </motion.button>
+
                     <input
                         ref={inputRef}
                         type="text"
-                        placeholder={typing ? 'Nova is thinking...' : 'Ask Nova anything about your finances…'}
+                        placeholder={typing ? 'Nova is analyzing...' : flowState === 'transfer' ? 'Type amount or recipient...' : 'Ask Nova anything...'}
                         value={input}
                         onChange={e => setInput(e.target.value)}
                         onKeyDown={e => e.key === 'Enter' && sendMessage()}
                         disabled={typing}
+                        style={{ flex: 1 }}
                     />
+
                     <motion.button
                         className="btn btn-glow btn-icon"
                         onClick={() => sendMessage()}
