@@ -37,36 +37,49 @@ export const analyzeFinances = (balance, transactions) => {
     const maxVal = Math.max(...weeklyChart.values, 1);
     weeklyChart.normalized = weeklyChart.values.map(v => v / maxVal);
 
+    // Category-based breakdown
+    const categories = Array.isArray(transactions) ? transactions.reduce((acc, t) => {
+        const cat = t.category || 'Other';
+        if (t.type === 'WITHDRAWAL' || t.type === 'TRANSFER') {
+            acc[cat] = (acc[cat] || 0) + t.amount;
+        }
+        return acc;
+    }, {}) : {};
+
+    const topCategory = Object.entries(categories).sort(([, a], [, b]) => b - a)[0]?.[0] || 'N/A';
+
     // Monthly stats
-    const monthlyIncome = transactions
-        .filter(t => new Date(t.date) >= monthStart && t.type === 'DEPOSIT')
+    const monthTransactions = transactions.filter(t => new Date(t.date) >= monthStart);
+
+    const monthlyIncome = monthTransactions
+        .filter(t => t.type === 'DEPOSIT')
         .reduce((s, t) => s + t.amount, 0);
 
-    const monthlySpend = transactions
-        .filter(t => new Date(t.date) >= monthStart && (t.type === 'WITHDRAWAL' || t.type === 'TRANSFER'))
+    const monthlySpend = monthTransactions
+        .filter(t => t.type === 'WITHDRAWAL' || t.type === 'TRANSFER')
         .reduce((s, t) => s + t.amount, 0);
 
     const savingsRate = monthlyIncome > 0 ? ((monthlyIncome - monthlySpend) / monthlyIncome) * 100 : 0;
 
-    // Anomalies
-    const avgSpend = transactions.length ? transactions.reduce((a, b) => a + b.amount, 0) / transactions.length : 0;
-    const anomalies = transactions.filter(t => t.amount > avgSpend * 3 && t.amount > 100);
+    // Anomalies/Overspending Detection
+    const dailyAvgSpend = currentWeekSpend / (now.getDay() === 0 ? 7 : now.getDay());
+    const isOverspending = monthlySpend > monthlyIncome && monthlyIncome > 0;
 
     // 1. Spending DNA
     let spendingDNA = 'Balanced';
-    if (savingsRate > 20 && anomalies.length === 0) spendingDNA = 'Conservative';
-    else if (savingsRate < 5 || anomalies.length > 2) spendingDNA = 'Impulsive';
+    if (savingsRate > 20) spendingDNA = 'Conservative';
+    else if (savingsRate < 0 || isOverspending) spendingDNA = 'Aggressive';
+    else if (savingsRate < 10) spendingDNA = 'Impulsive';
 
     // 2. Future Balance Prediction (Next 7 days)
-    const dailyAvgSpend = currentWeekSpend / (now.getDay() === 0 ? 7 : now.getDay());
     const futureBalance = Math.max(0, balance - (dailyAvgSpend * 7));
 
-    // 3. Risk Score (0-100, 100 is high risk)
+    // 3. Risk Score (0-100)
     let riskScore = 0;
     if (balance < 200) riskScore += 40;
-    if (spendingDNA === 'Impulsive') riskScore += 30;
+    if (isOverspending) riskScore += 30;
+    if (spendingDNA === 'Aggressive') riskScore += 20;
     if (futureBalance === 0) riskScore += 30;
-    if (anomalies.length > 0) riskScore += 10 * anomalies.length;
     riskScore = Math.min(100, riskScore);
 
     // 4. Emotional State
@@ -74,26 +87,14 @@ export const analyzeFinances = (balance, transactions) => {
     if (riskScore > 60) emotion = 'concerned';
     else if (savingsRate > 15 && balance > 500) emotion = 'happy';
 
-    // Activity Feed (Real-time events)
-    const activityFeed = [];
-    if (anomalies.length > 0) {
-        activityFeed.push({ icon: 'alert', text: `High-value transaction detected: $${anomalies[0].amount}`, time: 'Recent' });
-    }
-    if (riskScore > 70) {
-        activityFeed.push({ icon: 'warning', text: 'Risk score critically high. Consider locking spending.', time: 'Now' });
-    }
-    if (savingsRate > 20) {
-        activityFeed.push({ icon: 'success', text: 'Stellar saving rate achieved this month!', time: 'Today' });
-    }
-
     // Health Score
-    let score = 100 - riskScore; // Inverse of risk
+    let score = Math.max(0, 100 - riskScore);
 
-    // AI Auto Actions
+    // AI Suggestions
     const autoActions = [];
-    if (riskScore > 60) autoActions.push("Set strict daily budget limit");
-    if (balance > 2000 && spendingDNA === 'Conservative') autoActions.push("Invest idle cash into high-yield savings");
-    else if (balance < 500) autoActions.push("Review recent large utility/subscription bills");
+    if (riskScore > 60) autoActions.push("Set spending limit on " + topCategory);
+    if (balance > 1000 && savingsRate > 15) autoActions.push("Sweep $200 into a high-yield savings vault");
+    else if (balance < 500) autoActions.push("Audit recurring " + topCategory + " subscriptions");
 
     return {
         score,
@@ -104,9 +105,9 @@ export const analyzeFinances = (balance, transactions) => {
         spendingDNA,
         riskScore,
         emotion,
-        anomalies,
         savingsRate,
-        activityFeed,
+        topCategory,
+        isOverspending,
         autoActions
     };
 };

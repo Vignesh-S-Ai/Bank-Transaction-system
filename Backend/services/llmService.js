@@ -1,116 +1,76 @@
+require('dotenv').config();
 const axios = require('axios');
 
-/**
- * LLMService handles AI responses using either OpenAI or Gemini APIs.
- * It prioritizes Gemini for its free tier and falls back to OpenAI if configured.
- */
+// ─── KEY VALIDATION ────────────────────────────────────────────────────────
+const GEMINI_KEY = process.env.GEMINI_API_KEY?.trim();
+
+if (!GEMINI_KEY) console.error('❌ FATAL: GEMINI_API_KEY NOT SET');
+
+// Current Gemini Alias (March 2026)
+const MODEL_NAME = "gemini-3-flash-preview";
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${GEMINI_KEY}`;
+
+// ─── ChatGPT-level System Prompt ──────────────────────────────────────────
+function buildPrompt(message, history = [], context = {}) {
+    const { balance = 0, monthlyIncome = 3000, monthlySpend = 1200, transactions = [] } = context;
+
+    const systemBlock = `You are Nova, a highly intelligent, proactive financial co-pilot.
+Your goal is to provide ChatGPT-level insights. You are non-robotic, advisory, and deeply context-aware.
+
+Context Snapshot:
+- Balance: $${balance}
+- Monthly Income: $${monthlyIncome}
+- Monthly Spending: $${monthlySpend}
+- Savings Rate: ${((monthlyIncome - monthlySpend) / monthlyIncome * 100).toFixed(1)}%
+
+Personality Rules:
+1. USE NATURAL VARYING TONES: Instead of "Balance is 9000," say "You're in a strong position with $9,000 available."
+2. BE ADVISORY: If a spend is large, explain the trade-offs (e.g., impact on savings goals).
+3. CONCISE BUT HELPFUL: Markdown lists and bold text are preferred.
+4. MEMORY: You have the last 10 messages of the convo. Refer to previous context if relevant.
+
+Current Transactions: ${JSON.stringify(transactions.slice(0, 5))}
+
+--- History (Last 10 turns):`;
+
+    let historyBlock = '';
+    if (history.length > 0) {
+        history.slice(-10).forEach(m => {
+            const role = m.role === 'user' ? 'User' : 'Nova';
+            historyBlock += `\n${role}: ${m.text}`;
+        });
+    }
+
+    return `${systemBlock}${historyBlock}\nUser: ${message}\nNova:`;
+}
+
 class LLMService {
     async generateResponse(message, history = [], context = {}) {
-        // Sanitize API keys (remove quotes/spaces)
-        const openAiKey = process.env.OPENAI_API_KEY?.replace(/["']/g, '').trim();
-        const geminiKey = process.env.GEMINI_API_KEY?.replace(/["']/g, '').trim();
+        if (!GEMINI_KEY) throw new Error('GEMINI_API_KEY is missing.');
 
-        if (!openAiKey && !geminiKey) {
-            console.error("❌ Configuration Error: No AI API keys found in .env");
-            throw new Error("Missing AI configuration on server.");
-        }
+        const prompt = buildPrompt(message, history, context);
 
-        const safeBalance = context?.balance || 0;
-        const safeTransactions = Array.isArray(context?.transactions) ? context.transactions : [];
-
-        // Build the core system prompt with real financial context
-        const systemMessageText = `You are Nova, an intelligent fintech AI assistant for NovaBank.
-Act as a predictive financial co-pilot. Be conversational, professional, and helpful.
-Use Markdown formatting for emphasis.
-
-User Financial Context:
-- Available Balance: $${safeBalance}
-- Recent Activity: ${JSON.stringify(safeTransactions.slice(0, 5))}
-
-Instructions:
-1. Provide intelligent insights based on the context.
-2. If spending is high, suggest budget limits.
-3. Keep responses under 80 words.
-4. If asked to perform an action (like transfer), advise that you've triggered the secure workflow.`;
-
-        // 🟢 ATTEMPT 1: GOOGLE GEMINI (Prioritized)
-        if (geminiKey) {
-            try {
-                // Formatting for Gemini contents structure
-                // We join history into a plain text prompt for the models that prefer single-shot or text blocks
-                let historyPrompt = "";
-                history.forEach(m => {
-                    if (m.text) historyPrompt += `${m.role === 'user' ? 'User' : 'Nova'}: ${m.text}\n`;
-                });
-
-                const fullPrompt = `${systemMessageText}\n\nChat History:\n${historyPrompt}\nUser: ${message}\n\nNova:`;
-
-                const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
-
-                const response = await axios.post(geminiUrl, {
-                    contents: [{
-                        parts: [{ text: fullPrompt }]
-                    }]
-                });
-
-                const replyText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (replyText) {
-                    console.log("💎 Gemini Response Received Successfully");
-                    return replyText;
-                }
-
-                throw new Error("Empty response from Gemini");
-            } catch (error) {
-                const errorData = error?.response?.data;
-                console.error("🔴 Gemini API Error:", errorData || error.message);
-
-                // If OpenAI is not available, we have to fail here
-                if (!openAiKey) {
-                    throw new Error(`AI Service Unavailable: ${errorData?.error?.message || error.message}`);
-                }
-                console.log("🔄 Falling back to OpenAI...");
-            }
-        }
-
-        // 🟠 ATTEMPT 2: OPENAI (Fallback)
         try {
-            const messages = [
-                { role: "system", content: systemMessageText },
-                ...history.map(m => ({
-                    role: m.role === 'user' ? 'user' : 'assistant',
-                    content: m.text || ""
-                })),
-                { role: "user", content: message }
-            ];
-
             const response = await axios.post(
-                'https://api.openai.com/v1/chat/completions',
+                GEMINI_URL,
                 {
-                    model: 'gpt-3.5-turbo',
-                    messages: messages,
-                    temperature: 0.7,
-                    max_tokens: 256
-                },
-                {
-                    headers: {
-                        'Authorization': `Bearer ${openAiKey}`,
-                        'Content-Type': 'application/json'
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: {
+                        temperature: 0.85,
+                        maxOutputTokens: 800,
+                        topP: 0.95
                     }
-                }
+                },
+                { headers: { 'Content-Type': 'application/json' }, timeout: 25000 }
             );
 
-            console.log("🤖 OpenAI Response Received Successfully");
-            return response.data.choices[0].message.content;
-        } catch (error) {
-            const errorData = error?.response?.data;
-            console.error("🔴 OpenAI API Error:", errorData || error.message);
+            const replyText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!replyText) throw new Error('Empty response from Gemini');
 
-            // Check for specific quota error to provide better feedback
-            if (errorData?.error?.code === 'insufficient_quota') {
-                throw new Error("AI engine quota exceeded. Please use Gemini or check billing.");
-            }
-
-            throw new Error("AI service is currently offline. Please try again later.");
+            return replyText.trim();
+        } catch (err) {
+            console.error(`🔴 [Gemini] HTTP Error — ${err.message}`);
+            throw new Error('Nova AI is temporarily unavailable. Please try again.');
         }
     }
 }

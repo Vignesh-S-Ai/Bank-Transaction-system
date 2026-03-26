@@ -13,67 +13,67 @@ export class AIEngine {
     async processMessage(message) {
         // NLP Pipeline
         const context = processInput(message);
-        aiMemory.addMessage('user', message, context.intent);
+        const { intent, confidence } = context.intent;
+        aiMemory.addMessage('user', message, intent);
 
-        console.log("🗣️ AI NLP Processing:", context);
+        console.log(`🗣️ AI NLP: intent=${intent} conf=${confidence.toFixed(2)}`, context.entities);
 
         let responseText = "";
         let uiComponent = null;
 
         // 1. Stateful Multi-Turn Workflow Handling
         const state = aiMemory.actionState;
-
         if (state.flow === 'transfer') {
             return this.handleTransferWorkflow(context.originalText, state, context.entities);
         }
 
-        // 2. Intent Routing & Hybrid Fallback
-        switch (context.intent) {
-            case Intents.TRANSFER:
-                return this.initiateTransfer(context.entities);
+        // 2. LAYER 1: Fast Local Logic (High Confidence Intents)
+        const LOCAL_INTENTS = [Intents.TRANSFER, Intents.CHECK_BALANCE, Intents.CAN_I_SPEND, Intents.SET_GOAL, Intents.SHOW_CHART, Intents.FINANCIAL_HEALTH, Intents.PREDICT_FUTURE];
 
-            case Intents.CAN_I_SPEND:
-                return this.handleSpendReasoning(context.entities.amount);
+        if (confidence > 0.7 && LOCAL_INTENTS.includes(intent)) {
+            console.log("⚡ [Layer 1] Handling locally");
+            switch (intent) {
+                case Intents.TRANSFER:
+                    return this.initiateTransfer(context.entities);
 
-            case Intents.SET_GOAL:
-                return this.handleGoalSetting(context.entities.amount);
+                case Intents.CAN_I_SPEND:
+                    return this.handleSpendReasoning(context.entities.amount);
 
-            case Intents.SHOW_CHART:
-                uiComponent = 'spending_chart';
-                responseText = "Here is your spending analysis grouped from Monday to Sunday:";
-                break;
+                case Intents.SET_GOAL:
+                    return this.handleGoalSetting(context.entities.amount);
 
-            case Intents.FINANCIAL_HEALTH:
-                uiComponent = 'health_score';
-                responseText = `Your overall financial health is rated at **${this.analysis.score}/100**. ${this.analysis.score < 50 ? 'We have some work to do.' : 'You are doing great!'}`;
-                break;
+                case Intents.SHOW_CHART:
+                    uiComponent = 'spending_chart';
+                    responseText = "Here is your spending analysis grouped from Monday to Sunday:";
+                    break;
 
-            case Intents.PREDICT_FUTURE:
-                responseText = `Based on your trajectory, I predict your balance will be around **$${this.analysis.futureBalance.toFixed(2)}** next week.`;
-                if (this.analysis.futureBalance < 100) responseText += " ⚠️ You are at risk of a low balance. Consider slowing down discretionary spending.";
-                break;
+                case Intents.FINANCIAL_HEALTH:
+                    uiComponent = 'health_score';
+                    responseText = `Your overall financial health is rated at **${this.analysis.score}/100**. ${this.analysis.score < 50 ? 'We have some work to do.' : 'You are doing great!'}`;
+                    break;
 
-            case Intents.CHECK_BALANCE:
-                responseText = `Your current balance is **$${this.balance}**.`;
-                const goal = aiMemory.getPreference('savingsGoal');
-                if (goal) responseText += `\nYou are ${((this.balance / goal) * 100).toFixed(0)}% towards your $${goal} goal.`;
-                break;
+                case Intents.PREDICT_FUTURE:
+                    responseText = `Based on your trajectory, I predict your balance will be around **$${this.analysis.futureBalance.toFixed(2)}** next week.`;
+                    break;
 
-            case Intents.UNKNOWN:
-            case Intents.GREETING:
-            case Intents.ASK_ADVICE:
-            default:
-                // Hybrid LLM Delegate
-                try {
-                    const llmRes = await sendAIChat(message, aiMemory.history, {
-                        balance: this.balance,
-                        transactions: this.transactions
-                    });
-                    responseText = llmRes.reply;
-                } catch (err) {
-                    responseText = "I'm having trouble connecting to my cloud AI right now, but I can still help you locally with checking balances or making transfers! Try asking: 'Can I spend $50?'";
-                }
-                break;
+                case Intents.CHECK_BALANCE:
+                    responseText = `Your current balance is **$${this.balance}**.`;
+                    break;
+            }
+        } else {
+            // 3. LAYER 2: Cloud LLM (Gemini)
+            console.log("🌦️ [Layer 2] Delegating to Gemini");
+            try {
+                const llmRes = await sendAIChat(message, aiMemory.history, {
+                    balance: this.balance,
+                    transactions: this.transactions,
+                    analysis: this.analysis
+                });
+                responseText = llmRes?.reply || "I'm processing that for you...";
+            } catch (err) {
+                console.error('❌ LLM Error:', err);
+                responseText = "I'm having a bit of trouble connecting to my brain, but I can still help with your balance or transfers!";
+            }
         }
 
         const reply = { text: responseText, uiComponent };

@@ -11,74 +11,72 @@ export const Intents = {
     SHOW_CHART: 'SHOW_CHART',
     ASK_ADVICE: 'ASK_ADVICE',
     GREETING: 'GREETING',
+    SUPPORT: 'SUPPORT',
     UNKNOWN: 'UNKNOWN'
 };
 
 const keywords = {
-    [Intents.TRANSFER]: ['transfer', 'send', 'pay', 'remit'],
-    [Intents.CHECK_BALANCE]: ['balance', 'how much money', 'my account', 'funds available'],
-    [Intents.ANALYZE_SPEND]: ['spent', 'spending', 'expenses', 'outgoings'],
-    [Intents.CAN_I_SPEND]: ['can i spend', 'can i afford', 'should i buy', 'safe to spend'],
-    [Intents.SET_GOAL]: ['set goal', 'savings target', 'save goal', 'goal to'],
-    [Intents.FINANCIAL_HEALTH]: ['health', 'score', 'doing financially', 'risk'],
-    [Intents.PREDICT_FUTURE]: ['predict', 'future', 'next week', 'forecast'],
-    [Intents.SHOW_CHART]: ['chart', 'graph', 'visual', 'plot'],
-    [Intents.ASK_ADVICE]: ['advice', 'recommend', 'suggest', 'tips'],
-    [Intents.GREETING]: ['hello', 'hi', 'hey', 'morning', 'afternoon', 'evening']
+    [Intents.TRANSFER]: ['transfer', 'send', 'pay', 'remit', 'wire'],
+    [Intents.CHECK_BALANCE]: ['balance', 'how much money', 'my account', 'funds available', 'total'],
+    [Intents.ANALYZE_SPEND]: ['spent', 'spending', 'expenses', 'outgoings', 'audit', 'breakdown'],
+    [Intents.CAN_I_SPEND]: ['can i spend', 'can i afford', 'should i buy', 'safe to spend', 'ok to buy'],
+    [Intents.SET_GOAL]: ['set goal', 'savings target', 'save goal', 'target to'],
+    [Intents.FINANCIAL_HEALTH]: ['health', 'score', 'doing financially', 'status'],
+    [Intents.PREDICT_FUTURE]: ['predict', 'future', 'next week', 'forecast', 'projection'],
+    [Intents.SHOW_CHART]: ['chart', 'graph', 'visual', 'plot', 'visualize'],
+    [Intents.ASK_ADVICE]: ['advice', 'recommend', 'suggest', 'tips', 'guide', 'help with money'],
+    [Intents.GREETING]: ['hello', 'hi', 'hey', 'morning', 'afternoon', 'evening', 'sup', 'yo'],
+    [Intents.SUPPORT]: ['help', 'support', 'contact', 'broken', 'issue', 'problem']
 };
 
 export const extractEntities = (text) => {
     const t = text.toLowerCase();
     const entities = {};
 
-    // 1. Amount Extraction (e.g. 500, $500, 50.25)
+    // 1. Amount Extraction
     const amountMatch = t.match(/\$?\b(\d+(\.\d{1,2})?)\b/);
     if (amountMatch) entities.amount = parseFloat(amountMatch[1]);
 
-    // 2. Account/Recipient Extraction (e.g. "account 123", "to rec456", "John")
-    // Simple heuristic: word after "to" or "account"
+    // 2. Recipient/Account Extraction
     const accountMatch = t.match(/(?:to|account)\s+([a-zA-Z0-9]+)/);
-    if (accountMatch && !['account', 'my', 'the'].includes(accountMatch[1])) {
+    if (accountMatch && !['account', 'my', 'the', 'a'].includes(accountMatch[1])) {
         entities.recipient = accountMatch[1];
-    } else {
-        // Fallback for names: capitalized words after "send/transfer to"
-        const nameMatch = text.match(/(?:to|send)\s+([A-Z][a-z]+)/);
-        if (nameMatch) entities.recipient = nameMatch[1];
     }
 
-    // 3. Time Constraints (e.g. tomorrow, next week)
-    if (t.includes('tomorrow')) entities.time = 'tomorrow';
-    else if (t.includes('today')) entities.time = 'today';
-    else if (t.includes('next week')) entities.time = 'next week';
+    // 3. Category Extraction (Matching common bank categories)
+    const knownCategories = ['food', 'rent', 'utilities', 'shopping', 'entertainment', 'travel', 'health'];
+    const catMatch = knownCategories.find(c => t.includes(c));
+    if (catMatch) entities.category = catMatch;
 
     return entities;
 };
 
 export const detectIntent = (text) => {
     const t = text.toLowerCase();
-
-    // Check specific structural phrases first
-    if (t.includes('can i afford') || t.includes('can i spend')) return Intents.CAN_I_SPEND;
-    if (t.includes('set') && t.includes('goal')) return Intents.SET_GOAL;
-    if (t.includes('how much') && t.includes('spend')) return Intents.ANALYZE_SPEND;
-    if (t.includes('show') && (t.includes('chart') || t.includes('graph'))) return Intents.SHOW_CHART;
-
-    // Keyword scoring
-    let topIntent = Intents.UNKNOWN;
-    let maxScore = 0;
+    let results = [];
 
     for (const [intent, words] of Object.entries(keywords)) {
         let score = 0;
         words.forEach(w => {
-            if (t.includes(w)) score++;
+            if (t.includes(w)) score += 1;
+            if (new RegExp(`\\b${w}\\b`).test(t)) score += 2; // Bonus for whole word match
         });
-        if (score > maxScore) {
-            maxScore = score;
-            topIntent = intent;
+
+        if (score > 0) {
+            results.push({ intent, score });
         }
     }
 
-    return topIntent;
+    if (results.length === 0) return { intent: Intents.UNKNOWN, confidence: 0 };
+
+    results.sort((a, b) => b.score - a.score);
+    const top = results[0];
+
+    // Simple confidence calculation
+    const totalScore = results.reduce((s, r) => s + r.score, 0);
+    const confidence = top.score / (totalScore || 1);
+
+    return { intent: top.intent, confidence };
 };
 
 export const processInput = (text) => {
