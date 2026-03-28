@@ -44,35 +44,51 @@ Current Transactions: ${JSON.stringify(transactions.slice(0, 5))}
     return `${systemBlock}${historyBlock}\nUser: ${message}\nNova:`;
 }
 
+// ... your buildPrompt function remains the same ...
+
 class LLMService {
-    async generateResponse(message, history = [], context = {}) {
+    async generateResponse(message, history = [], context = {}, retries = 3) {
         if (!GEMINI_KEY) throw new Error('GEMINI_API_KEY is missing.');
 
         const prompt = buildPrompt(message, history, context);
 
-        try {
-            const response = await axios.post(
-                GEMINI_URL,
-                {
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        temperature: 0.85,
-                        maxOutputTokens: 800,
-                        topP: 0.95
+        for (let i = 0; i < retries; i++) {
+            try {
+                const response = await axios.post(
+                    GEMINI_URL,
+                    {
+                        contents: [{ parts: [{ text: prompt }] }],
+                        generationConfig: {
+                            temperature: 0.85,
+                            maxOutputTokens: 800,
+                            topP: 0.95
+                        }
+                    },
+                    {
+                        headers: { 'Content-Type': 'application/json' },
+                        timeout: 60000 // Increased to 60s
                     }
-                },
-                { headers: { 'Content-Type': 'application/json' }, timeout: 25000 }
-            );
+                );
 
-            const replyText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!replyText) throw new Error('Empty response from Gemini');
+                const replyText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (!replyText) throw new Error('Empty response from Gemini');
+                return replyText.trim();
 
-            return replyText.trim();
-        } catch (err) {
-            console.error(`🔴 [Gemini] HTTP Error — ${err.message}`);
-            throw new Error('Nova AI is temporarily unavailable. Please try again.');
+            } catch (err) {
+                const isRateLimit = err.response?.status === 429;
+                const isServerOverload = err.response?.status === 503;
+
+                if ((isRateLimit || isServerOverload) && i < retries - 1) {
+                    console.warn(`⚠️ [Gemini] Attempt ${i + 1} failed (${err.message}). Retrying...`);
+                    // Wait 2 seconds before retrying
+                    await new Promise(res => setTimeout(res, 2000));
+                    continue;
+                }
+
+                console.error(`🔴 [Gemini] Final Error — ${err.message}`);
+                throw new Error('Nova AI is temporarily unavailable. Please try again later.');
+            }
         }
     }
 }
-
 module.exports = new LLMService();
