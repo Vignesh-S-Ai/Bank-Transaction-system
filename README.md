@@ -5,7 +5,7 @@ NovaBank is a **full-stack fintech application** that simulates a modern banking
 This project demonstrates **production-level system design**, combining:
 
 * Secure banking operations
-* Scalable backend architecture hi
+* Scalable backend architecture 
 * AI-driven financial intelligence
 
 ---
