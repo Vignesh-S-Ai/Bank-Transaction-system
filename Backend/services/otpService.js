@@ -3,22 +3,26 @@ const pool = require('../config/db');
 class OTPService {
     async generateAndSendOTP(userId, email) {
         const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+
         try {
-            // Uses CURRENT_TIMESTAMP to avoid local Node clock issues
+            // 🔥 STEP 1: Invalidate old OTPs
             await pool.query(
-                `INSERT INTO user_otps (user_id, otp_code, expires_at) 
-                 VALUES (?, ?, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 10 MINUTE))`,
+                `UPDATE user_otps SET is_used = 1 WHERE user_id = ?`,
+                [userId]
+            );
+
+            // 🔥 STEP 2: Insert new OTP
+            await pool.query(
+                `INSERT INTO user_otps (user_id, otp_code, expires_at, is_used)
+             VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 10 MINUTE), 0)`,
                 [userId, otpCode]
             );
 
-            console.log('\n======================================================');
-            console.log('🚨 [NOVA BANK] Adaptive 2FA Triggered!');
-            console.log(`✉️ Destination : ${email}`);
-            console.log(`🔑 CODE        : ${otpCode}`);
-            console.log('======================================================\n');
+            console.log(`🔑 OTP: ${otpCode}`);
+
             return true;
         } catch (err) {
-            console.error('🔴 [OTP] Error:', err.message);
+            console.error('OTP Error:', err);
             return false;
         }
     }
@@ -28,10 +32,13 @@ class OTPService {
 
         // Fetch the absolute newest OTP for this user
         const [rows] = await pool.query(
-            `SELECT * FROM user_otps WHERE user_id = ? ORDER BY created_at DESC LIMIT 1`,
+            `SELECT * FROM user_otps 
+            WHERE user_id = ? 
+            AND is_used = 0
+            ORDER BY id DESC 
+            LIMIT 1`,
             [userId]
         );
-
         if (rows.length === 0) {
             console.log('❌ OTP does not exist at all for this user in the table.');
             return false;
@@ -60,8 +67,8 @@ class OTPService {
         const providedCode = String(code).trim();
         const dbCode = String(row.otp_code).trim();
 
-        if (providedCode !== dbCode) {
-            console.log(`❌ Code mismatch! User Typed: [${providedCode}], Database Expected: [${dbCode}]`);
+        if (Number(providedCode) !== Number(dbCode)) {
+            console.log(`❌ Mismatch → User: ${providedCode} | DB: ${dbCode}`);
             return false;
         }
 
