@@ -40,17 +40,31 @@ export const sendTelemetry = async (payload) => {
 
 export const verifyOtp = async (tempToken, otp) => {
     try {
-        console.log('Sending OTP Payload:', { tempToken, otp });
-        const response = await api.post('/auth/verify-otp', { tempToken, otp });
-        console.log('OTP Response:', response.data);
+        console.log('📤 Sending OTP Payload:', { tempToken, otp });
+
+        const response = await api.post(
+            '/auth/verify-otp',
+            { tempToken, otp },
+            {
+                // 🔥 Completely remove Authorization header
+                transformRequest: [(data, headers) => {
+                    delete headers.Authorization;
+                    return JSON.stringify(data);
+                }]
+            }
+        );
+
+        console.log('📥 OTP Response:', response.data);
+
         if (response.data.success && response.data.token) {
             localStorage.setItem('token', response.data.token);
             localStorage.setItem('user', JSON.stringify(response.data.data));
         }
+
         return response.data;
+
     } catch (error) {
-        console.error('OTP API Call Failed:', error);
-        console.error('Response Data:', error.response?.data);
+        console.error('❌ OTP API Call Failed:', error.response?.data || error.message);
         throw error;
     }
 };
